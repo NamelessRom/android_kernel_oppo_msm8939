@@ -381,6 +381,7 @@ struct synaptics_ts_data {
 	int camera_enable;
 	int music_enable;
 	int flashlight_enable;
+	int dialer_enable;
 	int gesture_enable;
 	int glove_enable;
 	int is_suspended;
@@ -1197,6 +1198,8 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 				keycode = KEY_GESTURE_LTR;
 			else if (gesture == LeftVee && ts->music_enable)
 				keycode = KEY_GESTURE_GTR;
+			else if (gesture == DownVee && ts->dialer_enable)
+				keycode = KEY_GESTURE_V_UP;
 			break;
 		case UNICODE_DETECT:
 			gesture =   (gesture_buffer[2] == 0x77 && gesture_buffer[3] == 0x00) ? Wgestrue :
@@ -1628,6 +1631,37 @@ static ssize_t tp_flashlight_write_func(struct file *file, const char __user *bu
 	return count;
 }
 
+static ssize_t tp_dialer_read_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int ret = 0;
+	char page[PAGESIZE];
+	struct synaptics_ts_data *ts = ts_g;
+	if(!ts)
+		return ret;
+	ret = sprintf(page, "%d\n", ts->dialer_enable);
+	ret = simple_read_from_buffer(user_buf, count, ppos, page, strlen(page));
+	return ret;
+}
+
+static ssize_t tp_dialer_write_func(struct file *file, const char __user *buffer, size_t count, loff_t *ppos)
+{
+	int ret = 0;
+	char buf[10];
+	struct synaptics_ts_data *ts = ts_g;
+	if( count > 2)
+		return count;
+	if( copy_from_user(buf, buffer, count) ){
+		printk(KERN_INFO "%s: read proc input error.\n", __func__);
+		return count;
+	}
+
+	sscanf(buf, "%d", &ret);
+	if(!ts)
+		return count;
+	ts->dialer_enable = !!ret;
+	return count;
+}
+
 static ssize_t coordinate_proc_read_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
 {
 	int ret = 0;
@@ -1670,6 +1704,13 @@ static const struct file_operations tp_music_proc_fops = {
 static const struct file_operations tp_flashlight_proc_fops = {
 	.write = tp_flashlight_write_func,
 	.read =  tp_flashlight_read_func,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+};
+
+static const struct file_operations tp_dialer_proc_fops = {
+	.write = tp_dialer_write_func,
+	.read =  tp_dialer_read_func,
 	.open = simple_open,
 	.owner = THIS_MODULE,
 };
@@ -2361,6 +2402,7 @@ static int	synaptics_input_init(struct synaptics_ts_data *ts)
 	set_bit(KEY_GESTURE_CIRCLE, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_SWIPE_DOWN, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_V, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_V_UP, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_LTR, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_GTR, ts->input_dev->keybit);
 #endif
@@ -2660,6 +2702,12 @@ static int init_synaptics_proc(struct synaptics_ts_data *ts)
 		}
 
 		prEntry_tmp = proc_create( "flashlight_enable", 0666, prEntry_tp, &tp_flashlight_proc_fops);
+		if(prEntry_tmp == NULL){
+			ret = -ENOMEM;
+			printk(KERN_INFO"init_synaptics_proc: Couldn't create proc entry\n");
+		}
+
+		prEntry_tmp = proc_create( "dialer_enable", 0666, prEntry_tp, &tp_dialer_proc_fops);
 		if(prEntry_tmp == NULL){
 			ret = -ENOMEM;
 			printk(KERN_INFO"init_synaptics_proc: Couldn't create proc entry\n");
